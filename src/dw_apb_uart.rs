@@ -1,0 +1,169 @@
+//! Definitions for snps,dw-apb-uart serial driver.
+
+use tock_registers::{
+    interfaces::{Readable, Writeable},
+    register_structs,
+    registers::{ReadOnly, ReadWrite},
+};
+
+register_structs! {
+    DW8250Regs {
+        /// Get or Put Register.
+        (0x00 => rbr: ReadWrite<u32>),
+        (0x04 => ier: ReadWrite<u32>),
+        (0x08 => fcr: ReadWrite<u32>),
+        (0x0c => lcr: ReadWrite<u32>),
+        (0x10 => mcr: ReadWrite<u32>),
+        (0x14 => lsr: ReadOnly<u32>),
+        (0x18 => msr: ReadOnly<u32>),
+        (0x1c => scr: ReadWrite<u32>),
+        (0x20 => lpdll: ReadWrite<u32>),
+        (0x24 => _reserved0),
+        /// Uart Status Register.
+        (0x7c => usr: ReadOnly<u32>),
+        (0x80 => _reserved1),
+        (0x88 => srr: ReadWrite<u32>),
+        (0x8c => _reserved2),
+        (0xc0 => dlf: ReadWrite<u32>),
+        (0xc4 => @END),
+    }
+}
+
+/// dw-apb-uart serial driver: DW8250
+pub struct DW8250 {
+    base_vaddr: usize,
+}
+
+impl DW8250 {
+    /// New a DW8250
+    pub const fn new(base_vaddr: usize) -> Self {
+        Self { base_vaddr }
+    }
+
+    const fn regs(&self) -> &DW8250Regs {
+        unsafe { &*(self.base_vaddr as *const _) }
+    }
+
+    pub fn init(&mut self) {
+        #[cfg(feature = "board_bst-a1000b")]
+        self.dw8250_init();
+
+        // T-HEAD
+        // const UART_SRC_CLK: u32 = 100000000;
+        // const BAUDRATE: u32 = 115200;
+        #[cfg(feature = "board_thead-c910")]
+        self.ns16550_init(100000000, 115200);
+
+        // RK3588
+        // const UART_SRC_CLK: u32 = 24_000_000;
+        // const BAUDRATE: u32 = 1500000;
+        #[cfg(feature = "board_rk3588")]
+        self.ns16550_init(24_000_000, 1500000);
+
+    }
+
+    /// DW8250 initialize for BST
+    pub fn dw8250_init(&mut self) {
+        const UART_SRC_CLK: u32 = 25000000;
+        const BST_UART_DLF_LEN: u32 = 6;
+        const BAUDRATE: u32 = 115200;
+        //const BAUDRATE: u32 = 38400;
+
+        let get_baud_divider = |baudrate| (UART_SRC_CLK << (BST_UART_DLF_LEN - 4)) / baudrate;
+        let divider = get_baud_divider(BAUDRATE);
+
+        // Waiting to be no USR_BUSY.
+        while self.regs().usr.get() & 0b1 != 0 {}
+
+        // bst_serial_hw_init_clk_rst
+
+        /* Disable interrupts and Enable FIFOs */
+        self.regs().ier.set(0);
+        self.regs().fcr.set(1);
+
+        /* Disable flow ctrl */
+        self.regs().mcr.set(0);
+
+        /* Clear MCR_RTS */
+        self.regs().mcr.set(self.regs().mcr.get() | (1 << 1));
+
+        /* Enable access DLL & DLH. Set LCR_DLAB */
+        self.regs().lcr.set(self.regs().lcr.get() | (1 << 7));
+
+        /* Set baud rate. Set DLL, DLH, DLF */
+        self.regs().rbr.set((divider >> BST_UART_DLF_LEN) & 0xff);
+        self.regs()
+            .ier
+            .set((divider >> (BST_UART_DLF_LEN + 8)) & 0xff);
+        self.regs().dlf.set(divider & ((1 << BST_UART_DLF_LEN) - 1));
+
+        /* Clear DLAB bit */
+        self.regs().lcr.set(self.regs().lcr.get() & !(1 << 7));
+
+        /* Set data length to 8 bit, 1 stop bit, no parity. Set LCR_WLS1 | LCR_WLS0 */
+        self.regs().lcr.set(self.regs().lcr.get() | 0b11);
+    }
+
+    /// ns16550 initialize for T-HEAD and RK3588
+    pub fn ns16550_init(&mut self, uart_src_clk: u32, baudrate: u32) {
+
+        let get_baud_divider = |baudrate| { (uart_src_clk + (baudrate * 16)/2) / (baudrate * 16)};
+        let divider = get_baud_divider(baudrate);
+
+        // Waiting to be UART_LSR_TEMT
+        while self.regs().lsr.get() & 0x40 == 0 {}
+
+        // Disable interrupts
+        self.regs().ier.set(0);
+
+        self.regs().fcr.set(0x7);
+        //self.regs().fcr.set(0x6); // Disable fifo
+
+        self.regs().mcr.set(0x3); // Set "data terminal ready" and "request to send"
+        self.regs().lcr.set(0x3); // 8bits data length
+
+        /* Enable access DLL & DLH. Set LCR_DLAB */
+        self.regs().lcr.set(0x80 | self.regs().lcr.get());
+
+        /* Set baud rate. Set DLL, DLH, DLF */
+        self.regs().rbr.set(divider & 0xff);
+        self.regs().ier.set((divider >> 8) & 0xff);
+
+        /* Clear DLAB bit */
+        self.regs().lcr.set(self.regs().lcr.get() & !0x80);
+    }
+
+    /// DW8250 serial output
+    pub fn putchar(&mut self, c: u8) {
+        // Check LSR_TEMT
+        // Wait for last character to go.
+        // while self.regs().lsr.get() & (1 << 6) == 0 {}
+        
+        // for thead c910 ?
+        while self.regs().lsr.get() & 0x20 == 0 {}
+
+        self.regs().rbr.set(c as u32);
+    }
+
+    /// DW8250 serial input
+    pub fn getchar(&mut self) -> Option<u8> {
+        // Check LSR_DR
+        // Wait for a character to arrive.
+        if self.regs().lsr.get() & 0b1 != 0 {
+            Some((self.regs().rbr.get() & 0xff) as u8)
+        } else {
+            None
+        }
+    }
+
+    /// DW8250 serial interrupt enable or disable
+    pub fn set_ier(&mut self, enable: bool) {
+        if enable {
+            // Enable interrupts
+            self.regs().ier.set(1);
+        } else {
+            // Disable interrupts
+            self.regs().ier.set(0);
+        }
+    }
+}
