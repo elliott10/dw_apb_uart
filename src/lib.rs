@@ -1,5 +1,5 @@
-//! Uart snps,dw-apb-uart driver in Rust for boards: 
-//! BST A1000b, 
+//! Uart snps,dw-apb-uart driver in Rust for boards:
+//! BST A1000b,
 //! T-HEAD C910,
 //! RK3588
 

@@ -59,7 +59,6 @@ impl DW8250 {
         // const BAUDRATE: u32 = 1500000;
         #[cfg(feature = "board_rk3588")]
         self.ns16550_init(24_000_000, 1500000);
-
     }
 
     /// DW8250 initialize for BST
@@ -106,8 +105,7 @@ impl DW8250 {
 
     /// ns16550 initialize for T-HEAD and RK3588
     pub fn ns16550_init(&mut self, uart_src_clk: u32, baudrate: u32) {
-
-        let get_baud_divider = |baudrate| { (uart_src_clk + (baudrate * 16)/2) / (baudrate * 16)};
+        let get_baud_divider = |baudrate| (uart_src_clk + (baudrate * 16) / 2) / (baudrate * 16);
         let divider = get_baud_divider(baudrate);
 
         // Waiting to be UART_LSR_TEMT
@@ -138,7 +136,7 @@ impl DW8250 {
         // Check LSR_TEMT
         // Wait for last character to go.
         // while self.regs().lsr.get() & (1 << 6) == 0 {}
-        
+
         // for thead c910 ?
         while self.regs().lsr.get() & 0x20 == 0 {}
 
