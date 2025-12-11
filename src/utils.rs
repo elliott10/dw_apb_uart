@@ -14,7 +14,7 @@ pub fn iomux_uart7_m2(addr: usize) {
     const GPIO1B5_SHIFT: u64 = 4;
     const GPIO1B5_UART7_TX_M2: u64 = 10;
 
-    Self::rk_clrsetreg(
+    rk_clrsetreg(
         (addr + gpio1b_iomux_sel_h) as u64,
         GPIO1B4_MASK | GPIO1B5_MASK,
         GPIO1B4_UART7_RX_M2 << GPIO1B4_SHIFT | GPIO1B5_UART7_TX_M2 << GPIO1B5_SHIFT,
@@ -33,18 +33,14 @@ fn rk_clrsetreg(addr: u64, clr: u64, set: u64) {
 // Pin = bank(3)*32 + number( C(2)*8 + 6 ) = 96 + 22 = 118
 // Data direction(GPIO_SWPORT_DDR_H): Output; Output data: High, Low;
 pub fn gpio_output(gpio_bank: usize, number: usize, is_high: bool) {
-    let mut base_offset = 0;
-    let mut num_shift = 0;
     // number = [0, 31]
-    if number < 16 {
+    let (base_offset, num_shift) = if number < 16 {
         // Output data for low 16 bits
-        base_offset = 0;
-        num_shift = number;
+        (0, number)
     } else {
         // Output data for high 16 bits
-        base_offset = 0x4;
-        num_shift = number % 16;
-    }
+        (0x4, number % 16)
+    };
     let data_base = gpio_bank + base_offset;
     let direction_base = gpio_bank + 0x8 + base_offset;
     let mask = (1 << num_shift) << 16;

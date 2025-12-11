@@ -52,7 +52,7 @@ impl DW8250 {
         // const UART_SRC_CLK: u32 = 100000000;
         // const BAUDRATE: u32 = 115200;
         #[cfg(feature = "board_thead-c910")]
-        self.ns16550_init(100000000, 115200);
+        self.ns16550_init(100_000_000, 115200);
 
         // RK3588
         // const UART_SRC_CLK: u32 = 24_000_000;
@@ -109,13 +109,13 @@ impl DW8250 {
         let divider = get_baud_divider(baudrate);
 
         // Waiting to be UART_LSR_TEMT
-        while self.regs().lsr.get() & 0x40 == 0 {}
+        while self.regs().lsr.get() & (1 << 6) == 0 {}
 
         // Disable interrupts
         self.regs().ier.set(0);
 
-        self.regs().fcr.set(0x7);
-        //self.regs().fcr.set(0x6); // Disable fifo
+        self.regs().fcr.set(0x7); // FIFO Reset; FIFO Enable
+                                  //self.regs().fcr.set(0x6); // Disable fifo
 
         self.regs().mcr.set(0x3); // Set "data terminal ready" and "request to send"
         self.regs().lcr.set(0x3); // 8bits data length
@@ -124,8 +124,9 @@ impl DW8250 {
         self.regs().lcr.set(0x80 | self.regs().lcr.get());
 
         /* Set baud rate. Set DLL, DLH, DLF */
-        self.regs().rbr.set(divider & 0xff);
-        self.regs().ier.set((divider >> 8) & 0xff);
+        /* Baud_rate = (serial_clock_freq) / (16 * divisor) */
+        self.regs().rbr.set(divider & 0xff); // Set lower 8 bits of baud rate Divisor
+        self.regs().ier.set((divider >> 8) & 0xff); // Set Upper 8 bits of baud rate Divisor
 
         /* Clear DLAB bit */
         self.regs().lcr.set(self.regs().lcr.get() & !0x80);
@@ -135,10 +136,8 @@ impl DW8250 {
     pub fn putchar(&mut self, c: u8) {
         // Check LSR_TEMT
         // Wait for last character to go.
-        // while self.regs().lsr.get() & (1 << 6) == 0 {}
-
-        // for thead c910 ?
-        while self.regs().lsr.get() & 0x20 == 0 {}
+        // while self.regs().lsr.get() & (1 << 6) == 0 {} // Transmitter Empty bit. default: 1
+        while self.regs().lsr.get() & (1 << 5) == 0 {} // Transmit Holding Register Empty bit. default: 1
 
         self.regs().rbr.set(c as u32);
     }
