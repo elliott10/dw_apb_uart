@@ -16,7 +16,7 @@ Enable exactly one board feature in `Cargo.toml`:
 
 ```toml
 [dependencies]
-dw_apb_uart = { version = "0.2.0", features = ["board_thead-c910"] }
+dw_uart_rs = { version = "0.2.0", features = ["board_thead-c910"] }
 ```
 
 Below is a minimal example for:
